@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS clockouts (
   resumed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS workday (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK (mode IN ('off', 'wrapup', 'clockout')),
+  end_time TEXT NOT NULL,
+  last_run_date TEXT
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

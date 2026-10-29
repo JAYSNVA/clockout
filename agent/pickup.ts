@@ -13,13 +13,14 @@ export interface PickupRepo {
 export interface PickupState {
   date: string;
   createdAt: string;
+  notBefore?: string; // hand the notes over from the next working morning
   settingsPath: string;
   hookCommand: string;
   repos: PickupRepo[];
 }
 
 // Saves per-repo notes and installs the SessionStart hook that hands them to the next session.
-export function installPickup(date: string, repos: { repo: string; path: string; markdown: string }[], now = new Date()) {
+export function installPickup(date: string, repos: { repo: string; path: string; markdown: string }[], now = new Date(), notBefore?: Date) {
   const p = paths();
   const command = hookCommand(p.pickupHook);
   if (repos.length === 0) {
@@ -30,6 +31,7 @@ export function installPickup(date: string, repos: { repo: string; path: string;
   const state: PickupState = {
     date,
     createdAt: now.toISOString(),
+    ...(notBefore ? { notBefore: notBefore.toISOString() } : {}),
     settingsPath: settingsPath(),
     hookCommand: command,
     repos: repos.map((r) => ({ ...r, realPath: safeRealpath(r.path) })),

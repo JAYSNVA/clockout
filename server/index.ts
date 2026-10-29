@@ -7,6 +7,7 @@ import { paths } from "../shared/paths.js";
 import { buildApp } from "./app.js";
 import { openDb } from "./db.js";
 import { startLocalAgent } from "./localAgent.js";
+import { startScheduler } from "./scheduler.js";
 import { createJob, ensureLocalDevice, localDevice, recomputeAll } from "./store.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,6 +25,7 @@ fs.writeFileSync(p.localDevice, JSON.stringify({ token, server: `http://127.0.0.
 
 recomputeAll(db); // metrics definitions may have changed since the last run
 const agent = startLocalAgent(db);
+const scheduler = startScheduler(db, () => void agent.tick());
 const app = buildApp({ db, webDir: path.join(root, "dist", "web"), onJobCreated: () => void agent.tick(), lan });
 
 // Fresh data on every start for the linked developer.
@@ -59,6 +61,7 @@ if (!process.env.CLOCKOUT_NO_OPEN) {
 
 const shutdown = async () => {
   agent.stop();
+  scheduler.stop();
   await app.close();
   db.close();
   process.exit(0);

@@ -50,6 +50,9 @@ if (Date.now() - Date.parse(state.createdAt) > MAX_AGE_MS) {
   process.exit(0);
 }
 
+// Not morning yet: keep the notes until the next working day starts.
+if (state.notBefore && Date.now() < Date.parse(state.notBefore)) process.exit(0);
+
 // Still clocked out: keep the notes for the morning.
 try {
   const pause = JSON.parse(fs.readFileSync(path.join(dir, "pause.json"), "utf8"));

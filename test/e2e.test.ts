@@ -129,6 +129,9 @@ describe("end to end: login -> collect -> manager charts -> clock out -> resume"
     expect(hooksAfterResume.SessionStart).toHaveLength(1);
 
     // Next morning: the first Claude Code session in the repo starts with yesterday's notes.
+    const pickupState = JSON.parse(fs.readFileSync(paths().pickupState, "utf8"));
+    expect(Date.parse(pickupState.notBefore)).toBeGreaterThan(Date.now()); // not before the next working morning
+    fs.writeFileSync(paths().pickupState, JSON.stringify({ ...pickupState, notBefore: new Date(Date.now() - 1000).toISOString() }));
     const pickup = spawnSync("node", [paths().pickupHook], { input: JSON.stringify({ source: "startup", cwd: repo }), encoding: "utf8" });
     expect(JSON.parse(pickup.stdout).hookSpecificOutput.additionalContext).toContain("write the webhook docs");
     expect(JSON.parse(fs.readFileSync(settingsFile, "utf8")).hooks).toBeUndefined();

@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type DeveloperDetail, type DeveloperOverview, type Job, type ManagerOverview, type Me, type TimeBack } from "./api";
+import { api, type DeveloperDetail, type DeveloperOverview, type Job, type ManagerOverview, type Me, type TimeBack, type Workday } from "./api";
 import { ActivityTimeline, LoadTrendSingle } from "./charts";
 import { Card, DeveloperProgress, Markdown, StatusBadge, TaskKey, TeamCharts, Tile } from "./components";
 import { ago, clock, dateTime, hhmm, hm } from "./format";
 
 type Tab = "day" | "manager" | "settings";
 
-const JOB_LABEL: Record<Job["type"], string> = { collect: "Collecting", clockout: "Clocking out", resume: "Resuming" };
+const JOB_LABEL: Record<Job["type"], string> = {
+  collect: "Collecting",
+  clockout: "Clocking out",
+  resume: "Resuming",
+  "auto-clockout": "Clocking out (end of workday)",
+  "auto-wrapup": "Writing tomorrow's list (end of workday)",
+};
 
 export function DeveloperPage({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
   const [tab, setTab] = useState<Tab>("day");
@@ -59,6 +65,11 @@ export function DeveloperPage({ me, reloadMe }: { me: Me; reloadMe: () => void }
           <h1>Hi {me.user.name}.</h1>
         </div>
         <div className="row">
+          {!busy && me.workday && me.workday.mode !== "off" && (
+            <span className="secondary small">
+              {me.workday.mode === "clockout" ? "Clocks out" : "Writes tomorrow's list"} at {me.workday.endTime} on weekdays
+            </span>
+          )}
           {busy && <span className="secondary small">{JOB_LABEL[job!.type]}…</span>}
           <button onClick={() => start("collect")} disabled={busy || noAgent}>
             Collect now
@@ -76,10 +87,10 @@ export function DeveloperPage({ me, reloadMe }: { me: Me; reloadMe: () => void }
       </div>
 
       {error && <div className="banner error">{error}</div>}
-      {o.paused && o.clockout && (
+      {o.paused && o.clockout?.pauseUntil && (
         <div className="banner paused">
           <span>
-            You're clocked out. Claude Code tools are paused until <b>{dateTime(o.clockout.pauseUntil)}</b>.
+            You're clocked out. Claude Code tools are paused until <b>{dateTime(o.clockout.pauseUntil!)}</b>.
           </span>
           <button onClick={() => start("resume")} disabled={busy}>
             Resume now
@@ -173,10 +184,19 @@ function ClockoutSummary({ c, pickup }: { c: NonNullable<DeveloperOverview["cloc
   const skipped = c.savedRepos.filter((s) => s.status === "skipped");
   return (
     <div className="grid-2">
-      <Card title="Last clock-out" sub={`${dateTime(c.createdAt)}${c.resumedAt ? ` · resumed ${ago(c.resumedAt)}` : ""}`}>
+      <Card
+        title={c.pauseUntil ? "Last clock-out" : "Last wrap-up"}
+        sub={`${dateTime(c.createdAt)}${c.auto ? " · end of workday" : ""}${c.resumedAt ? ` · resumed ${ago(c.resumedAt)}` : ""}`}
+      >
         <div style={{ display: "grid", gap: 8 }}>
           <div>
-            Agents paused until <b>{dateTime(c.pauseUntil)}</b>.
+            {c.pauseUntil ? (
+              <>
+                Agents paused until <b>{dateTime(c.pauseUntil)}</b>.
+              </>
+            ) : (
+              "Tomorrow's list is written. Agents were not paused."
+            )}
           </div>
           {saved.length === 0 && skipped.length === 0 && <div className="secondary">No uncommitted work to save.</div>}
           {saved.map((s) => (
@@ -363,6 +383,7 @@ function DevSettings({ me, o, onSaved }: { me: Me; o: DeveloperOverview; onSaved
   };
   return (
     <div className="grid-2">
+      <WorkdayCard initial={me.workday ?? { mode: "off", endTime: "18:00" }} onSaved={onSaved} />
       <Card title="Git emails" sub="Commits by these emails count as yours, including commits in shared repos on other people's machines.">
         <div className="row">
           <input value={emails} onChange={(e) => setEmails(e.target.value)} style={{ flex: 1 }} placeholder="you@company.com" />
@@ -385,5 +406,49 @@ function DevSettings({ me, o, onSaved }: { me: Me; o: DeveloperOverview; onSaved
         </p>
       </Card>
     </div>
+  );
+}
+
+function WorkdayCard({ initial, onSaved }: { initial: Workday; onSaved: () => void }) {
+  const [w, setW] = useState(initial);
+  const [msg, setMsg] = useState("");
+  const save = async (next: Workday) => {
+    setW(next);
+    try {
+      await api("PUT", "/api/me/workday", next);
+      setMsg(next.mode === "off" ? "Off." : `Saved. Runs at ${next.endTime} on weekdays while Clockout is running.`);
+      onSaved();
+    } catch (err) {
+      setMsg((err as Error).message);
+    }
+  };
+  const options: { mode: Workday["mode"]; label: string }[] = [
+    { mode: "off", label: "Off" },
+    { mode: "wrapup", label: "Write tomorrow's list" },
+    { mode: "clockout", label: "Full clock out" },
+  ];
+  return (
+    <Card title="End of workday" sub="Clockout can end the day for you at a set time on weekdays. No notifications, and it skips days you didn't work or already clocked out.">
+      <div style={{ display: "grid", gap: 12 }}>
+        <div className="seg" role="radiogroup" aria-label="End of workday">
+          {options.map((o) => (
+            <button key={o.mode} className={w.mode === o.mode ? "on" : ""} onClick={() => save({ ...w, mode: o.mode })}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <label className="row small secondary">
+          At
+          <input type="time" value={w.endTime} onChange={(e) => e.target.value && save({ ...w, endTime: e.target.value })} />
+        </label>
+        <div className="small secondary">
+          {w.mode === "wrapup" && "Saves open work, writes tomorrow's list and readies tomorrow's pickup. Agents keep running."}
+          {w.mode === "clockout" && "Same as pressing Clock out: also pauses Claude Code tools until the next working morning."}
+          {w.mode === "off" && "Nothing runs on its own."}
+        </div>
+        <div className="small muted">Runs while the dashboard is running: keep it open, or use npm run autostart.</div>
+        {msg && <div className="small secondary">{msg}</div>}
+      </div>
+    </Card>
   );
 }

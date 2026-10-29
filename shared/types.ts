@@ -48,7 +48,8 @@ export interface SavedRepo {
 export interface ClockoutResult {
   date: string;
   savedRepos: SavedRepo[];
-  pauseUntil: string;
+  pauseUntil: string | null; // null when the end-of-workday run only wrote tomorrow's list
+  auto?: boolean; // run by the end-of-workday schedule
   tomorrowPath: string;
   tomorrowMd: string;
   usedClaudeSummary: boolean;
@@ -56,12 +57,14 @@ export interface ClockoutResult {
   pickupRepos: string[]; // repos whose next Claude Code session starts with these notes
 }
 
-export type JobType = "collect" | "clockout" | "resume";
+// auto-* jobs come from the developer's end-of-workday schedule.
+export type JobType = "collect" | "clockout" | "resume" | "auto-clockout" | "auto-wrapup";
 
 export interface JobResult {
   payload?: CollectPayload;
   clockout?: ClockoutResult;
   resumed?: boolean;
+  skipped?: string; // an auto job that had nothing to do
 }
 
 export interface Settings {

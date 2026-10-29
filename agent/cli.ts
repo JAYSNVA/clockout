@@ -16,8 +16,8 @@ if (type !== "clockout" && type !== "resume") {
 
 function printClockout(c: ClockoutResult) {
   const saved = c.savedRepos.filter((s) => s.status === "saved");
-  const until = new Date(c.pauseUntil).toLocaleString([], { weekday: "long", hour: "2-digit", minute: "2-digit" });
-  console.log(`\nClocked out. Claude Code tools are paused until ${until}.`);
+  const until = c.pauseUntil && new Date(c.pauseUntil).toLocaleString([], { weekday: "long", hour: "2-digit", minute: "2-digit" });
+  console.log(until ? `\nClocked out. Claude Code tools are paused until ${until}.` : "\nWrapped up. Tomorrow's list is written; agents were not paused.");
   if (saved.length === 0) console.log("  No uncommitted work to save.");
   for (const s of saved) console.log(`  saved ${s.repo} -> ${s.branch} (${s.files} files)`);
   for (const s of c.savedRepos.filter((s) => s.status === "skipped")) console.log(`  skipped ${s.repo}: ${s.reason}`);

@@ -307,6 +307,10 @@ Filters and transparency:
 - **FR-63 Start at login.** `npm run autostart` installs a launchd LaunchAgent (macOS) or systemd user service (Linux)
   that runs the server; `-- --remove` undoes it. `npm start` reports a port clash instead of crashing.
 
+- **FR-64 End of workday (opt-in).** Per developer: off, write tomorrow's list (no pause), or full clock out, at a set
+  time on weekdays. Runs once per day within 3 hours after the time while the server runs; skips days without the
+  developer's activity and days they already clocked out. Morning pickup waits for the next working morning.
+
 ## 14. Remaining open points
 
 None. Ready for approval.

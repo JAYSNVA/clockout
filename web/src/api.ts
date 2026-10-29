@@ -30,6 +30,12 @@ export interface Me {
   canLinkLocal: boolean;
   settings: Settings;
   demo: boolean;
+  workday: Workday | null;
+}
+
+export interface Workday {
+  mode: "off" | "wrapup" | "clockout";
+  endTime: string;
 }
 
 export interface Day {
@@ -57,7 +63,7 @@ export type TaskStatus = "Done" | "In progress" | "Stalled";
 
 export interface Job {
   id: number;
-  type: "collect" | "clockout" | "resume";
+  type: "collect" | "clockout" | "resume" | "auto-clockout" | "auto-wrapup";
   status: "pending" | "running" | "done" | "failed";
   created_at: string;
   finished_at: string | null;
@@ -75,7 +81,8 @@ export interface SavedRepo {
 export interface Clockout {
   date: string;
   savedRepos: SavedRepo[];
-  pauseUntil: string;
+  pauseUntil: string | null;
+  auto?: boolean;
   tomorrowPath: string;
   tomorrowMd: string;
   usedClaudeSummary: boolean;

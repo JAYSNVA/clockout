@@ -91,7 +91,18 @@ Opens <http://localhost:4322> with a generated team instead of your data, so you
 - **My tasks:** Jira tasks with status, your time, agent time, commits and cycle time.
 - **Last clock-out:** saved branches and tomorrow's list. Only you can see tomorrow's list.
 - **What my manager sees:** exactly the charts your manager sees about you.
-- **Settings:** your git emails, and linking this machine's agent to you.
+- **Settings:** end of workday (below), your git emails, and linking this machine's agent to you.
+
+### End of workday (opt-in)
+
+In **Settings → End of workday**, pick a time (for example 18:30) and what should happen on weekdays:
+
+- **Write tomorrow's list:** saves open work, writes tomorrow's list and readies tomorrow's pickup. Agents keep running.
+- **Full clock out:** the same as pressing **Clock out**, including pausing Claude Code until the next working morning.
+
+It runs once per weekday, at or up to 3 hours after your time, while the dashboard is running (use `npm run autostart`
+so it always is). There are no notifications. It skips days you didn't work and days you already clocked out yourself,
+and the morning pickup waits for the next working morning either way.
 
 ### Manager dashboard
 

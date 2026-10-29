@@ -12,6 +12,14 @@ export function localDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function workedToday(local: { prompts: { ts: string }[]; commits: { ts: string; email: string }[]; localEmails: string[] }, now: Date) {
+  const today = localDate(now);
+  return (
+    local.prompts.some((p) => localDate(new Date(p.ts)) === today) ||
+    local.commits.some((c) => local.localEmails.includes(c.email) && localDate(new Date(c.ts)) === today)
+  );
+}
+
 // Runs one job on this machine. Used by the in-process local agent, the remote agent and the CLI.
 export async function runJob(type: JobType, settings: Settings, now = new Date()): Promise<JobResult> {
   if (type === "resume") return { resumed: removePause() };
@@ -20,7 +28,11 @@ export async function runJob(type: JobType, settings: Settings, now = new Date()
   if (type === "collect") return { payload };
 
   // Clock out: collect -> save open work -> tomorrow's list -> pause agents -> morning pickup.
+  // The end-of-workday schedule runs the same steps; "auto-wrapup" leaves agents running.
+  const auto = type === "auto-clockout" || type === "auto-wrapup";
+  const pauseAgents = type !== "auto-wrapup";
   const date = localDate(now);
+  if (auto && !workedToday(local, now)) return { payload, skipped: "no activity from you today" };
   const savedRepos: SavedRepo[] = [];
   for (const repo of [...local.recentRepos].sort()) {
     const top = local.repoPaths.get(repo);
@@ -31,15 +43,15 @@ export async function runJob(type: JobType, settings: Settings, now = new Date()
   const days = todayByRepo(local, savedRepos, now);
   const summary = await claudeNotes(days); // before the pause hook goes in
   const notes = summary?.notes ?? {};
-  const pause = installPause(until);
-  const tomorrowMd = tomorrowMarkdown(days, date, pause.untilLabel, notes);
+  const pause = pauseAgents ? installPause(until) : null;
+  const tomorrowMd = tomorrowMarkdown(days, date, pause?.untilLabel ?? null, notes);
 
   // Tomorrow's first Claude Code session in each repo starts with that repo's notes.
   const pickup = days.flatMap((d) => {
     const repoPath = local.repoPaths.get(d.repo);
     return repoPath ? [{ repo: d.repo, path: repoPath, markdown: repoSection(d, notes[d.repo]) }] : [];
   });
-  installPickup(date, pickup, now);
+  installPickup(date, pickup, now, until);
 
   const dir = paths().tomorrowDir;
   fs.mkdirSync(dir, { recursive: true });
@@ -51,7 +63,8 @@ export async function runJob(type: JobType, settings: Settings, now = new Date()
     clockout: {
       date,
       savedRepos: savedRepos.filter((s) => s.status === "saved" || s.reason !== "no uncommitted changes"),
-      pauseUntil: pause.until,
+      pauseUntil: pause?.until ?? null,
+      auto,
       tomorrowPath,
       tomorrowMd,
       usedClaudeSummary: !!summary,

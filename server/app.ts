@@ -18,6 +18,7 @@ import {
   deviceForToken,
   emailsFor,
   getSettings,
+  getWorkday,
   jobById,
   latestClockout,
   linkLocalDevice,
@@ -26,6 +27,7 @@ import {
   registerRemoteDevice,
   renameUser,
   setEmails,
+  setWorkday,
   signIn,
   signOut,
   unmatchedAuthors,
@@ -143,7 +145,13 @@ export function buildApp({ db, webDir, onJobCreated, lan = false }: AppOptions) 
       canLinkLocal: isLoopback(req),
       settings: getSettings(db),
       demo: process.env.CLOCKOUT_DEMO === "1",
+      workday: user.role === "developer" ? getWorkday(db, user.id) : null,
     };
+  });
+
+  app.put<{ Body: { mode?: "off" | "wrapup" | "clockout"; endTime?: string } }>("/api/me/workday", async (req) => {
+    const user = requireDeveloper(req);
+    return { workday: setWorkday(db, user.id, req.body ?? {}) };
   });
 
   app.put<{ Body: { emails?: string[] } }>("/api/me/emails", async (req) => {

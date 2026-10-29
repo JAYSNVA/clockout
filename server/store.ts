@@ -211,6 +211,36 @@ export function devicesFor(db: DB, userId: number): Device[] {
   return all<Device>(db, "SELECT * FROM devices WHERE user_id = ? ORDER BY is_local DESC, id", userId);
 }
 
+// ---------- end of workday (per developer, opt-in) ----------
+
+export type WorkdayMode = "off" | "wrapup" | "clockout";
+export interface Workday {
+  mode: WorkdayMode;
+  endTime: string; // HH:MM, local time of the machine running Clockout
+}
+
+export function getWorkday(db: DB, userId: number): Workday {
+  const row = get<{ mode: WorkdayMode; end_time: string }>(db, "SELECT mode, end_time FROM workday WHERE user_id = ?", userId);
+  return row ? { mode: row.mode, endTime: row.end_time } : { mode: "off", endTime: "18:00" };
+}
+
+export function setWorkday(db: DB, userId: number, w: Partial<Workday>) {
+  const current = getWorkday(db, userId);
+  const mode = w.mode ?? current.mode;
+  const endTime = w.endTime ?? current.endTime;
+  if (!["off", "wrapup", "clockout"].includes(mode)) throw new HttpError(400, "Choose off, wrapup or clockout.");
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime)) throw new HttpError(400, "Use a time like 18:30.");
+  run(
+    db,
+    `INSERT INTO workday (user_id, mode, end_time) VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET mode = excluded.mode, end_time = excluded.end_time`,
+    userId,
+    mode,
+    endTime,
+  );
+  return getWorkday(db, userId);
+}
+
 // ---------- jobs ----------
 
 export function createJob(db: DB, userId: number, type: JobType): Job {
@@ -245,6 +275,14 @@ export function claimNextJob(db: DB, deviceId: number): Job | undefined {
 export function completeJob(db: DB, jobId: number, result: JobResult | null, error?: string) {
   const job = jobById(db, jobId);
   if (!job) throw new HttpError(404, "Job not found.");
+  if (!error && result?.skipped) {
+    run(db, "UPDATE jobs SET status = 'done', finished_at = ?, error = ? WHERE id = ?", now(), `Skipped: ${result.skipped}`, jobId);
+    if (result.payload) {
+      ingestPayload(db, job.user_id, result.payload, false);
+      recomputeAll(db);
+    }
+    return;
+  }
   if (error || !result) {
     run(db, "UPDATE jobs SET status = 'failed', finished_at = ?, error = ? WHERE id = ?", now(), error ?? "Unknown error", jobId);
     run(db, "UPDATE devices SET last_error = ? WHERE id = ?", error ?? "Unknown error", job.device_id);

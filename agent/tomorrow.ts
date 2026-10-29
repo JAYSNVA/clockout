@@ -87,8 +87,8 @@ export function repoSection(d: RepoDay, note?: string): string {
   return lines.join("\n");
 }
 
-export function tomorrowMarkdown(days: RepoDay[], date: string, pauseLabel: string, notes: Record<string, string> = {}): string {
-  const lines = [`# Tomorrow — picked up from ${date}`, "", `Agents paused until ${pauseLabel}.`, ""];
+export function tomorrowMarkdown(days: RepoDay[], date: string, pauseLabel: string | null, notes: Record<string, string> = {}): string {
+  const lines = [`# Tomorrow — picked up from ${date}`, "", pauseLabel ? `Agents paused until ${pauseLabel}.` : "Agents were not paused.", ""];
   if (days.length === 0) {
     lines.push("No Claude Code or git activity found today. Nothing to pick up.");
     return lines.join("\n") + "\n";
