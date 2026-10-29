@@ -66,3 +66,16 @@ export function removeHook(event: string, command: string): boolean {
   writeSettings(file, settings);
   return true;
 }
+
+// Edits settings with a backup first. `edit` returns false to leave the file unchanged.
+export function editSettings(edit: (settings: Record<string, any>) => boolean) {
+  const file = settingsPath();
+  const settings = readSettings(file);
+  if (!edit(settings)) return false;
+  if (fs.existsSync(file)) {
+    fs.mkdirSync(paths().backups, { recursive: true });
+    fs.copyFileSync(file, path.join(paths().backups, `settings-${Date.now()}.json`));
+  }
+  writeSettings(file, settings);
+  return true;
+}

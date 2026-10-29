@@ -292,6 +292,16 @@ Filters and transparency:
   they kept working), evenings given back this week, after-hours agent calls paused (logged by the pause hook), and
   late-night minutes against the same days last week.
 
-## 13. Remaining open points
+## 13. v5 additions (approved 2026-10-29, implemented)
+
+- **FR-59 Localhost only by default.** Without `--lan`, requests whose Host or Origin isn't localhost get 403
+  (DNS-rebinding protection).
+- **FR-60 Claude Code integration.** `npm run setup-claude` adds a status line (hands-on time today, time since last
+  break, or clocked-out state) and the `/clockout` and `/clockout-resume` skills; `-- --remove` undoes it. An existing
+  status line is never replaced.
+- **FR-61 Demo.** `npm run demo` runs the app on a generated sample team in `./.demo` (port 4322); `npm start` never
+  shows demo data.
+
+## 14. Remaining open points
 
 None. Ready for approval.

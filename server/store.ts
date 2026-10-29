@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { CollectPayload, JobResult, JobType, Settings } from "../shared/types.js";
+import type { ClockoutResult, CollectPayload, JobResult, JobType, Settings } from "../shared/types.js";
 import { DEFAULT_SETTINGS } from "../shared/types.js";
 import { all, get, run, tx, type DB } from "./db.js";
 import { computeDays, type ActivityEvent } from "./metrics.js";
@@ -269,6 +269,11 @@ export function completeJob(db: DB, jobId: number, result: JobResult | null, err
     run(db, "UPDATE devices SET last_run_at = ?, last_error = NULL WHERE id = ?", now(), job.device_id);
   });
   if (result.payload) recomputeAll(db);
+}
+
+export function latestClockout(db: DB, userId: number): ClockoutResult | null {
+  const row = get<{ result_json: string }>(db, "SELECT result_json FROM clockouts WHERE user_id = ? ORDER BY id DESC LIMIT 1", userId);
+  return row ? (JSON.parse(row.result_json) as ClockoutResult) : null;
 }
 
 // ---------- ingest and recompute ----------

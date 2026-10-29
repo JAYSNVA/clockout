@@ -19,6 +19,7 @@ import {
   emailsFor,
   getSettings,
   jobById,
+  latestClockout,
   linkLocalDevice,
   listUsers,
   localDevice,
@@ -41,6 +42,18 @@ export interface AppOptions {
   db: DB;
   webDir?: string;
   onJobCreated?: () => void;
+  lan?: boolean; // started with --lan: other hosts on the network may connect
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+function hostname(hostHeader: string | undefined) {
+  if (!hostHeader) return "";
+  try {
+    return new URL(`http://${hostHeader}`).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function isLoopback(req: FastifyRequest) {
@@ -48,9 +61,21 @@ function isLoopback(req: FastifyRequest) {
   return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }
 
-export function buildApp({ db, webDir, onJobCreated }: AppOptions) {
+export function buildApp({ db, webDir, onJobCreated, lan = false }: AppOptions) {
   const app = Fastify({ logger: false, bodyLimit: 50 * 1024 * 1024 });
   app.register(cookie);
+
+  // Without --lan, only answer requests addressed to localhost, and only from localhost pages.
+  // This stops DNS rebinding: a web page on another domain that resolves to 127.0.0.1 can't
+  // sign in or press Clock out, because its requests carry the other domain in Host and Origin.
+  if (!lan) {
+    app.addHook("onRequest", async (req, reply) => {
+      const origin = req.headers.origin;
+      if (!LOCAL_HOSTS.has(hostname(req.headers.host)) || (origin && origin !== "null" && !LOCAL_HOSTS.has(hostname(origin.replace(/^\w+:\/\//, ""))))) {
+        return reply.status(403).send({ error: "Clockout only answers on localhost. Start it with --lan to allow other hosts." });
+      }
+    });
+  }
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message });
@@ -245,7 +270,9 @@ export function buildApp({ db, webDir, onJobCreated }: AppOptions) {
     const device = deviceAuth(req);
     const job = jobById(db, Number(req.params.id));
     if (!job || job.device_id !== device.id) throw new HttpError(404, "Job not found.");
-    return { job };
+    // The CLI (and /clockout in Claude Code) prints the clock-out summary.
+    const clockout = job.type === "clockout" && job.status === "done" ? latestClockout(db, job.user_id) : null;
+    return { job, clockout };
   });
 
   app.post<{ Params: { id: string }; Body: { result?: JobResult; error?: string } }>("/api/agent/jobs/:id/result", async (req) => {

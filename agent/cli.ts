@@ -16,7 +16,9 @@ if (type !== "clockout" && type !== "resume") {
 
 function printClockout(c: ClockoutResult) {
   const saved = c.savedRepos.filter((s) => s.status === "saved");
-  console.log(`\nClocked out. Agents paused until ${new Date(c.pauseUntil).toLocaleString()}.`);
+  const until = new Date(c.pauseUntil).toLocaleString([], { weekday: "long", hour: "2-digit", minute: "2-digit" });
+  console.log(`\nClocked out. Claude Code tools are paused until ${until}.`);
+  if (saved.length === 0) console.log("  No uncommitted work to save.");
   for (const s of saved) console.log(`  saved ${s.repo} -> ${s.branch} (${s.files} files)`);
   for (const s of c.savedRepos.filter((s) => s.status === "skipped")) console.log(`  skipped ${s.repo}: ${s.reason}`);
   console.log(`  Tomorrow's list: ${c.tomorrowPath}`);
@@ -43,9 +45,11 @@ async function viaServer(): Promise<boolean> {
   for (let i = 0; i < 120; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     const poll = await fetch(`${server}/api/agent/jobs/${data.job.id}`, { headers });
-    const { job } = (await poll.json()) as { job: { status: string; error?: string } };
+    const { job, clockout } = (await poll.json()) as { job: { status: string; error?: string }; clockout?: ClockoutResult | null };
     if (job.status === "done") {
-      console.log(type === "resume" ? "Resumed. Claude Code tools are unblocked." : "Clocked out. See the summary in the Clockout dashboard.");
+      if (type === "resume") console.log("Resumed. Claude Code tools are unblocked.");
+      else if (clockout) printClockout(clockout);
+      else console.log("Clocked out. See the summary in the Clockout dashboard.");
       return true;
     }
     if (job.status === "failed") {

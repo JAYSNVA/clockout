@@ -131,7 +131,8 @@ Developer data reaches the manager in two real ways. Nothing is simulated.
    jobs on their machine.
 
 > `--lan` has no access control. Anyone on the network can open the app and sign in as anyone. Use it only on networks
-> you trust.
+> you trust. Without `--lan`, Clockout answers only requests addressed to `localhost` from `localhost` pages, so a web
+> page on another site can't reach it, even through DNS rebinding.
 
 ### Command line
 
@@ -139,6 +140,26 @@ Developer data reaches the manager in two real ways. Nothing is simulated.
 npm run clockout   # same as the Clock out button (works even when the server is not running)
 npm run resume     # unblock Claude Code now
 ```
+
+### Inside Claude Code
+
+```bash
+npm run setup-claude              # add the status line and the /clockout commands
+npm run setup-claude -- --remove  # take them out again
+```
+
+Then start a new Claude Code session:
+
+- **Status line** at the bottom of Claude Code, for example
+  `Clockout · 2h10m hands-on today · 52m since your last break`, or `on a break since 14:10`, or
+  `clocked out until Friday 08:00`. It counts only your own prompts, reads today's logs incrementally (about 50 ms per
+  refresh) and never alerts. If you already have a status line, Clockout keeps yours and prints how to switch.
+- **`/clockout`** clocks out without leaving Claude Code: it runs `npm run clockout` and Claude sums up what was saved,
+  where tomorrow's list is and until when agents are paused. Claude never runs it on its own.
+- **`/clockout-resume`** unblocks tools early. It works even while tools are paused.
+
+The commands are personal skills in `~/.claude/skills/clockout*/` and point at this folder, so keep the folder where it
+is or run `npm run setup-claude` again after moving it.
 
 ## How it works
 

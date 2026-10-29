@@ -24,7 +24,7 @@ fs.writeFileSync(p.localDevice, JSON.stringify({ token, server: `http://127.0.0.
 
 recomputeAll(db); // metrics definitions may have changed since the last run
 const agent = startLocalAgent(db);
-const app = buildApp({ db, webDir: path.join(root, "dist", "web"), onJobCreated: () => void agent.tick() });
+const app = buildApp({ db, webDir: path.join(root, "dist", "web"), onJobCreated: () => void agent.tick(), lan });
 
 // Fresh data on every start for the linked developer.
 const local = localDevice(db);
