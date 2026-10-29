@@ -137,9 +137,25 @@ Developer data reaches the manager in two real ways. Nothing is simulated.
 ### Command line
 
 ```bash
+npm run today      # your day in the terminal: hands-on time, agents, breaks, tasks, last 7 days
 npm run clockout   # same as the Clock out button (works even when the server is not running)
 npm run resume     # unblock Claude Code now
 ```
+
+None of these need the server or a browser. `npm run today` reads your logs and git directly (a few seconds) and
+stores nothing.
+
+### Start at login
+
+```bash
+npm run autostart              # macOS (launchd) or Linux (systemd user service)
+npm run autostart -- --remove  # undo
+```
+
+The dashboard then always runs at <http://localhost:4321> without a terminal window, and restarts if it crashes.
+Logs go to `~/.clockout/server.log`. `PORT` and `CLOCKOUT_*` settings in your environment carry over to the service;
+`ANTHROPIC_API_KEY` is never written to the service file (the notes then use your `claude` login). If you run
+`npm start` while the service is up, it tells you Clockout is already running instead of failing.
 
 ### Inside Claude Code
 

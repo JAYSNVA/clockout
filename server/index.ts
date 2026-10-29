@@ -33,7 +33,18 @@ if (local?.user_id) {
   void agent.tick();
 }
 
-await app.listen({ port, host });
+try {
+  await app.listen({ port, host });
+} catch (err) {
+  if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+    console.error(`\n  Port ${port} is in use: Clockout may already be running (for example through npm run autostart).`);
+    console.error(`  Open http://localhost:${port}, or start on another port: PORT=4330 npm start\n`);
+    agent.stop();
+    db.close();
+    process.exit(1);
+  }
+  throw err;
+}
 const url = `http://localhost:${port}`;
 console.log(`\n  Clockout${process.env.CLOCKOUT_DEMO === "1" ? " (demo data)" : ""} is running at ${url}`);
 console.log(lan

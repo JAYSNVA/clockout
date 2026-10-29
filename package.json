@@ -14,6 +14,8 @@
     "agent": "tsx agent/remote.ts",
     "clockout": "tsx agent/cli.ts clockout",
     "resume": "tsx agent/cli.ts resume",
+    "today": "tsx agent/today.ts",
+    "autostart": "tsx agent/autostart.ts",
     "setup-claude": "tsx agent/setup.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

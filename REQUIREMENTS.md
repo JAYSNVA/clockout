@@ -302,6 +302,11 @@ Filters and transparency:
 - **FR-61 Demo.** `npm run demo` runs the app on a generated sample team in `./.demo` (port 4322); `npm start` never
   shows demo data.
 
+- **FR-62 Terminal report.** `npm run today` prints today's hands-on and agent time, breaks, switches, load, tasks and
+  the last 7 days straight from local logs and git, with no server.
+- **FR-63 Start at login.** `npm run autostart` installs a launchd LaunchAgent (macOS) or systemd user service (Linux)
+  that runs the server; `-- --remove` undoes it. `npm start` reports a port clash instead of crashing.
+
 ## 14. Remaining open points
 
 None. Ready for approval.
