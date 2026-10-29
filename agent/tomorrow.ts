@@ -46,7 +46,8 @@ export function todayByRepo(local: LocalDetails, saved: SavedRepo[], now: Date):
   for (const pr of local.prompts) {
     if (!sameLocalDay(pr.ts, now)) continue;
     const top = repoToplevel(pr.cwd);
-    const r = get(top ? repoName(top) : pr.cwd.split("/").pop() || "unknown");
+    const real = top && (fs.existsSync(top) ? fs.realpathSync(top) : top);
+    const r = get(real ? local.repoNames.get(real) ?? repoName(real) : pr.cwd.split("/").pop() || "unknown");
     r.lastPrompts = r.lastPrompts.filter((p) => p.task !== pr.task).concat({ task: pr.task, text: pr.text });
     if (pr.task && !r.tasks.includes(pr.task)) r.tasks.push(pr.task);
   }

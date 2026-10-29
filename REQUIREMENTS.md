@@ -311,6 +311,14 @@ Filters and transparency:
   time on weekdays. Runs once per day within 3 hours after the time while the server runs; skips days without the
   developer's activity and days they already clocked out. Morning pickup waits for the next working morning.
 
-## 14. Remaining open points
+## 14. Smaller fixes (implemented)
+
+- Load score breakdown on the dashboard (hover the tile).
+- `npm run clockout` without the server uses the stored settings and records the clock-out.
+- Clockout's own `clockout/<date>` branches older than 14 days are deleted at clock-out (`CLOCKOUT_KEEP_DAYS`).
+- Repos sharing a folder name get distinct names ("backend (work)"); repo paths are normalized with realpath.
+- Each agent reports its time zone; metrics, finish times and the end-of-workday schedule use it.
+
+## 15. Remaining open points
 
 None. Ready for approval.

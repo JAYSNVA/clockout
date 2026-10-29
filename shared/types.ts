@@ -34,6 +34,7 @@ export interface CollectPayload {
   commits: CommitEvent[];
   tasks: TaskDone[];
   blockedCalls: string[]; // timestamps of tool calls the pause hook blocked
+  timeZone?: string; // IANA zone of the developer's machine, e.g. "Europe/Dublin"
 }
 
 export interface SavedRepo {
@@ -55,6 +56,7 @@ export interface ClockoutResult {
   usedClaudeSummary: boolean;
   summarySource: "api" | "claude-code" | null;
   pickupRepos: string[]; // repos whose next Claude Code session starts with these notes
+  prunedBranches?: number; // old clockout/* branches removed
 }
 
 // auto-* jobs come from the developer's end-of-workday schedule.

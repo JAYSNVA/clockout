@@ -5,13 +5,14 @@ import { execFileSync } from "node:child_process";
 import type { CollectPayload, TaskDone } from "../shared/types.js";
 import { paths } from "../shared/paths.js";
 import { readClaudeLogs, type PromptRecord } from "./claudeLogs.js";
-import { findRepos, readCommits, readTaskDone, repoName, repoToplevel, type RepoCommit } from "./git.js";
+import { findRepos, readCommits, readTaskDone, repoNames, repoToplevel, type RepoCommit } from "./git.js";
 
 export const COLLECT_DAYS = 45;
 
 // Local-only details used for tomorrow's list and WIP saving. Never sent to managers.
 export interface LocalDetails {
   repoPaths: Map<string, string>; // repo name -> toplevel path
+  repoNames: Map<string, string>; // toplevel path -> repo name
   prompts: PromptRecord[];
   commits: RepoCommit[];
   localEmails: string[];
@@ -47,28 +48,44 @@ function readBlockedCalls(file: string, since: Date): string[] {
   return out;
 }
 
+// One spelling per repo path (macOS /var vs /private/var, symlinked folders).
+function realpath(p: string) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 export async function collect(now = new Date()): Promise<CollectOutput> {
   const p = paths();
   const since = new Date(now.getTime() - COLLECT_DAYS * 86400000);
-  const repoPaths = new Map<string, string>();
+  const tops = new Set<string>();
 
+  // Events are keyed by repo path first; names are given once every repo is known.
+  const NOT_A_REPO = "\u0000dir:";
   const repoFor = (cwd: string) => {
-    const top = repoToplevel(cwd);
-    if (top) {
-      repoPaths.set(repoName(top), top);
-      return repoName(top);
+    const found = repoToplevel(cwd);
+    if (found) {
+      const top = realpath(found);
+      tops.add(top);
+      return top;
     }
-    return cwd ? path.basename(cwd) : "unknown";
+    return NOT_A_REPO + (cwd ? path.basename(cwd) : "unknown");
   };
 
   const logs = await readClaudeLogs(p.claudeDir, since.getTime(), repoFor, p.clockoutHome);
-  for (const top of findRepos(p.scanRoots)) repoPaths.set(repoName(top), top);
+  for (const top of findRepos(p.scanRoots)) tops.add(realpath(top));
+  const names = repoNames([...tops]);
+  const nameOf = (key: string) => (key.startsWith(NOT_A_REPO) ? key.slice(NOT_A_REPO.length) : names.get(key) ?? path.basename(key));
+  for (const e of logs.events) e.repo = nameOf(e.repo);
+  const repoPaths = new Map([...names].map(([top, name]) => [name, top]));
 
   const commits: RepoCommit[] = [];
   const tasks: TaskDone[] = [];
-  for (const top of repoPaths.values()) {
-    commits.push(...readCommits(top, since));
-    tasks.push(...readTaskDone(top, since));
+  for (const [top, name] of names) {
+    commits.push(...readCommits(top, since, name));
+    tasks.push(...readTaskDone(top, since, name));
   }
 
   const localEmails = gitGlobalEmail();
@@ -96,7 +113,8 @@ export async function collect(now = new Date()): Promise<CollectOutput> {
       commits: commits.map(({ subject: _s, ...c }) => c),
       tasks,
       blockedCalls,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
-    local: { repoPaths, prompts: logs.prompts, commits, localEmails, recentRepos },
+    local: { repoPaths, repoNames: names, prompts: logs.prompts, commits, localEmails, recentRepos },
   };
 }

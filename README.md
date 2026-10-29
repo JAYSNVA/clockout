@@ -149,7 +149,7 @@ Developer data reaches the manager in two real ways. Nothing is simulated.
 
 ```bash
 npm run today      # your day in the terminal: hands-on time, agents, breaks, tasks, last 7 days
-npm run clockout   # same as the Clock out button (works even when the server is not running)
+npm run clockout   # same as the Clock out button; without the server it still uses your settings and records it
 npm run resume     # unblock Claude Code now
 ```
 
@@ -226,7 +226,11 @@ machine and reports back. The local agent handles jobs straight away; remote age
 15 × min(context switches / 20, 1)       # 20 switches
 ```
 
-A developer is **over the threshold** when their 7-day average load is at or above 60 (configurable).
+A developer is **over the threshold** when their 7-day average load is at or above 60 (configurable). Hover the load
+score on the dashboard to see what made it up.
+
+**Time zones:** each agent reports its machine's time zone, so days, late night, finish times and the end-of-workday
+schedule follow each developer's own clock, even when a teammate's agent sends data from another zone.
 
 ### Jira tasks
 
@@ -263,6 +267,8 @@ A developer is **over the threshold** when their 7-day average load is at or abo
    - Your working tree, your staged changes and your current branch stay exactly as they were.
    - Repos in the middle of a merge, rebase or cherry-pick are skipped and reported.
    - To restore: `git checkout clockout/<date> -- .`
+   - Clockout's own `clockout/<date>` branches older than 14 days are deleted (set `CLOCKOUT_KEEP_DAYS` to change).
+     Branches you made yourself under `clockout/`, and the branch you have checked out, are never touched.
 3. Write `~/clockout/tomorrow-<date>.md`. The "where you left off" line per repo comes from Claude:
    - With `ANTHROPIC_API_KEY` set, through the Claude API.
    - Otherwise through your installed `claude` CLI and its existing login, run headless: no tools, hooks turned off,
@@ -291,6 +297,7 @@ Copy `.env.example` to `.env`, or export the variables:
 | `CLOCKOUT_MODEL` | `claude-opus-5-5` with an API key; your Claude Code default otherwise | Model used for those notes. |
 | `CLOCKOUT_SUMMARY` | — | Set to `off` to skip the Claude-written notes entirely. |
 | `CLOCKOUT_CLAUDE_BIN` | found on `PATH` | Path to the `claude` CLI, if it's somewhere unusual. |
+| `CLOCKOUT_KEEP_DAYS` | `14` | Days to keep Clockout's `clockout/<date>` WIP branches. |
 | `PORT` | `4321` | Server port. |
 | `CLOCKOUT_SCAN_ROOTS` | your home folder | Colon-separated folders to search for git repos (3 levels deep). Repos from Claude Code logs are always included. |
 | `CLOCKOUT_HOME` | `~/.clockout` | Database, pause state, backups. |

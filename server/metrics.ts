@@ -61,36 +61,92 @@ const EARLY_HOUR = 6;
 export const DAY_ROLLOVER_HOUR = 5;
 const MIN = 60000;
 
-export function localDateKey(ms: number) {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// ---------- wall-clock time in a developer's time zone ----------
+// Without a time zone, the server's own zone is used.
+
+export const SERVER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const offsets = new Map<string, number>();
+
+export function isTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== "string" || !tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function workdayKey(ms: number) {
-  return localDateKey(ms - DAY_ROLLOVER_HOUR * 3600000);
+// Offset of `tz` from UTC at instant `ms`, cached per hour.
+function offsetMs(ms: number, tz: string) {
+  const key = `${tz}|${Math.floor(ms / 3600000)}`;
+  const cached = offsets.get(key);
+  if (cached !== undefined) return cached;
+  let f = formatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+    formatters.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
+  const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
+  offsets.set(key, offset);
+  return offset;
 }
 
-function minutesOfDay(ms: number) {
-  const d = new Date(ms);
-  return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+// Year, month, day, weekday, hour, minute of `ms` as seen in `tz`.
+export function wallClock(ms: number, tz = SERVER_TZ) {
+  const d = new Date(ms + offsetMs(ms, tz));
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    dow: d.getUTCDay(),
+    hours: d.getUTCHours(),
+    minutes: d.getUTCMinutes(),
+    seconds: d.getUTCSeconds(),
+  };
 }
 
-// Load score 0-100. Documented in the README.
-export function loadScore(m: {
+export function localDateKey(ms: number, tz?: string) {
+  const w = wallClock(ms, tz);
+  return `${w.year}-${String(w.month).padStart(2, "0")}-${String(w.day).padStart(2, "0")}`;
+}
+
+export function workdayKey(ms: number, tz?: string) {
+  return localDateKey(ms - DAY_ROLLOVER_HOUR * 3600000, tz);
+}
+
+function minutesOfDay(ms: number, tz?: string) {
+  const w = wallClock(ms, tz);
+  return w.hours * 60 + w.minutes + w.seconds / 60;
+}
+
+interface LoadInputs {
   activeMinutes: number;
   longestStretchMinutes: number;
   peakParallelSessions: number;
   lateNightMinutes: number;
   contextSwitches: number;
-}) {
+}
+
+// The five parts of the load score, in points. Documented in the README.
+export function loadParts(m: LoadInputs) {
   const clamp = (x: number) => Math.max(0, Math.min(1, x));
-  const score =
-    35 * clamp(m.activeMinutes / 600) +
-    20 * clamp(m.longestStretchMinutes / 240) +
-    15 * clamp((m.peakParallelSessions - 1) / 3) +
-    15 * clamp(m.lateNightMinutes / 120) +
-    15 * clamp(m.contextSwitches / 20);
-  return Math.round(score);
+  const r = (x: number) => Math.round(x * 10) / 10;
+  return {
+    handsOn: r(35 * clamp(m.activeMinutes / 600)),
+    stretch: r(20 * clamp(m.longestStretchMinutes / 240)),
+    parallel: r(15 * clamp((m.peakParallelSessions - 1) / 3)),
+    lateNight: r(15 * clamp(m.lateNightMinutes / 120)),
+    switches: r(15 * clamp(m.contextSwitches / 20)),
+  };
+}
+
+// Load score 0-100.
+export function loadScore(m: LoadInputs) {
+  const p = loadParts(m);
+  return Math.round(p.handsOn + p.stretch + p.parallel + p.lateNight + p.switches);
 }
 
 interface RawBlock {
@@ -158,20 +214,22 @@ function peakParallel(events: ActivityEvent[]): number {
   return peak;
 }
 
-const toBlock = (start: number, end: number): Block => ({
-  start: Math.round(minutesOfDay(start)),
-  end: Math.round(minutesOfDay(start) + (end - start) / MIN),
+const toBlock = (start: number, end: number, tz?: string): Block => ({
+  start: Math.round(minutesOfDay(start, tz)),
+  end: Math.round(minutesOfDay(start, tz) + (end - start) / MIN),
 });
 
-export function computeDays(events: ActivityEvent[], lateHour: number): { days: DayMetrics[]; tasks: TaskDay[] } {
+// `timeZone` is the developer's own zone: days, late night and finish times follow their clock.
+export function computeDays(events: ActivityEvent[], lateHour: number, timeZone?: string): { days: DayMetrics[]; tasks: TaskDay[] } {
+  const tz = isTimeZone(timeZone) ? timeZone : undefined;
   const sorted = [...events].sort((a, b) => a.ts - b.ts);
   const byDate = new Map<string, ActivityEvent[]>();
   const finish = new Map<string, number>(); // workday -> last moment of your own activity
   for (const e of sorted) {
-    const key = localDateKey(e.ts);
+    const key = localDateKey(e.ts, tz);
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key)!.push(e);
-    if (e.human) finish.set(workdayKey(e.ts), e.ts);
+    if (e.human) finish.set(workdayKey(e.ts, tz), e.ts);
   }
 
   const days: DayMetrics[] = [];
@@ -186,7 +244,7 @@ export function computeDays(events: ActivityEvent[], lateHour: number): { days: 
     let lateNight = 0;
     for (const b of blocks) {
       for (let t = b.start; t < b.end; t += MIN) {
-        const h = new Date(t).getHours();
+        const h = wallClock(t, tz).hours;
         if (h >= lateHour || h < EARLY_HOUR) lateNight++;
       }
     }
@@ -203,7 +261,7 @@ export function computeDays(events: ActivityEvent[], lateHour: number): { days: 
     const inYourBlocks = (t: number) => blocks.some((b) => t >= b.start && t <= b.end);
     const agentSolo = agentMinuteSet.filter((t) => !inYourBlocks(t)).length;
 
-    const dow = new Date(evs[0].ts).getDay();
+    const dow = wallClock(evs[0].ts, tz).dow;
     const metrics = {
       activeMinutes: Math.round(activeMinutes),
       longestStretchMinutes: Math.round(blockMinutes.length ? Math.max(...blockMinutes) : 0),
@@ -225,8 +283,8 @@ export function computeDays(events: ActivityEvent[], lateHour: number): { days: 
       agentMinutes: agentMinuteSet.length,
       agentSoloMinutes: agentSolo,
       loadScore: loadScore(metrics),
-      blocks: blocks.map((b) => toBlock(b.start, b.end)),
-      agentBlocks: agentIntervals(agentMinuteSet).map(([s, e]) => toBlock(s, e)),
+      blocks: blocks.map((b) => toBlock(b.start, b.end, tz)),
+      agentBlocks: agentIntervals(agentMinuteSet).map(([s, e]) => toBlock(s, e, tz)),
     });
 
     // Per task: your time goes to the task of your earlier action for each gap inside a block

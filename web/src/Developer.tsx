@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type DeveloperDetail, type DeveloperOverview, type Job, type ManagerOverview, type Me, type TimeBack, type Workday } from "./api";
+import { api, type Day, type DeveloperDetail, type DeveloperOverview, type Job, type ManagerOverview, type Me, type TimeBack, type Workday } from "./api";
 import { ActivityTimeline, LoadTrendSingle } from "./charts";
 import { Card, DeveloperProgress, Markdown, StatusBadge, TaskKey, TeamCharts, Tile } from "./components";
 import { ago, clock, dateTime, hhmm, hm } from "./format";
@@ -115,7 +115,7 @@ export function DeveloperPage({ me, reloadMe }: { me: Me; reloadMe: () => void }
             <Tile label="Last break" value={clock(t.lastBreakAt)} hint={t.lastBreakAt ? "ended at" : "no break yet today"} />
             <Tile label="Parallel sessions" value={t.peakParallelSessions} hint="peak Claude Code sessions at once" />
             <Tile label="Context switches" value={t.contextSwitches} hint={`across ${t.reposTouched} ${t.reposTouched === 1 ? "repo" : "repos"}`} />
-            <Tile label="Load score" value={t.loadScore} hint={t.source === "git-only" ? "git-only, less precise" : "0–100, see README"} />
+            <Tile label="Load score" value={t.loadScore} hint={<LoadBreakdown parts={t.loadParts} />} />
           </div>
 
           <TimeGivenBack tb={o.timeBack} />
@@ -220,6 +220,11 @@ function ClockoutSummary({ c, pickup }: { c: NonNullable<DeveloperOverview["cloc
                 </span>
               ))}{" "}
               starts with these notes, so Claude knows where you left off.
+            </div>
+          )}
+          {!!c.prunedBranches && (
+            <div className="secondary small">
+              Removed {c.prunedBranches} old <code>clockout/*</code> {c.prunedBranches === 1 ? "branch" : "branches"} (older than 14 days).
             </div>
           )}
           <div className="muted small">
@@ -450,5 +455,23 @@ function WorkdayCard({ initial, onSaved }: { initial: Workday; onSaved: () => vo
         {msg && <div className="small secondary">{msg}</div>}
       </div>
     </Card>
+  );
+}
+
+// What made up the load score: the biggest parts first, each out of its maximum.
+function LoadBreakdown({ parts }: { parts: Day["loadParts"] }) {
+  const rows: [string, number, number][] = [
+    ["hands-on time", parts.handsOn, 35],
+    ["longest stretch", parts.stretch, 20],
+    ["parallel sessions", parts.parallel, 15],
+    ["late night", parts.lateNight, 15],
+    ["context switches", parts.switches, 15],
+  ];
+  const top = rows.filter(([, p]) => p > 0).sort((a, b) => b[1] - a[1]);
+  const title = rows.map(([name, p, max]) => `${name}: ${p} of ${max}`).join("\n");
+  return (
+    <span title={title} style={{ cursor: "help", borderBottom: "1px dotted currentColor" }}>
+      {top.length ? `mostly ${top.slice(0, 2).map(([name]) => name).join(" and ")}` : "nothing yet"}
+    </span>
   );
 }

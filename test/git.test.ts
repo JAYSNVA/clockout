@@ -68,3 +68,41 @@ describe("commits and task status", () => {
     expect(new Date(done[0].doneAt!).getHours()).toBe(11);
   });
 });
+
+describe("pruneClockoutBranches", () => {
+  it("deletes only Clockout's own WIP branches older than the limit, never the checked-out one", async () => {
+    const { pruneClockoutBranches } = await import("../agent/git");
+    const { code } = sandbox();
+    const repo = makeRepo(path.join(code, "api"));
+    commit(repo, "a.txt", "1", "init", author("Dev", "dev@example.com", todayAt(9)));
+    const old = new Date(Date.now() - 20 * 86400000);
+    fs.writeFileSync(path.join(repo, "a.txt"), "wip\n");
+    expect(saveOpenWork(repo, "2026-10-01", old).branch).toBe("clockout/2026-10-01");
+    // saveOpenWork stamps the commit with the real clock; age it like a branch from 20 days ago
+    const sha = sh(repo, ["commit-tree", sh(repo, ["rev-parse", "clockout/2026-10-01^{tree}"]), "-p", "HEAD", "-m", "WIP: clockout 2026-10-01"], author("Dev", "dev@example.com", old));
+    sh(repo, ["update-ref", "refs/heads/clockout/2026-10-01", sha]);
+    sh(repo, ["branch", "clockout/my-own-notes"]); // a branch the developer made under clockout/
+    expect(saveOpenWork(repo, "2026-10-29").branch).toBe("clockout/2026-10-29"); // recent
+
+    expect(pruneClockoutBranches(repo, 14)).toEqual(["clockout/2026-10-01"]);
+    expect(sh(repo, ["branch", "--list", "clockout/*"]).split("\n").map((b) => b.trim()).sort()).toEqual(["clockout/2026-10-29", "clockout/my-own-notes"]);
+  });
+});
+
+describe("repos with the same folder name", () => {
+  it("get distinct names instead of being merged", async () => {
+    const { collect } = await import("../agent/collect");
+    const { code, claudeDir } = sandbox();
+    const work = makeRepo(path.join(code, "work", "backend"));
+    const mine = makeRepo(path.join(code, "personal", "backend"));
+    commit(work, "a.txt", "1", "API-1 work change", author("Dev", "dev@example.com", todayAt(9)));
+    commit(mine, "a.txt", "1", "side project", author("Dev", "dev@example.com", todayAt(10)));
+    const { writeClaudeSession } = await import("./helpers");
+    writeClaudeSession(claudeDir, { sessionId: "s1", cwd: work, start: todayAt(9), end: todayAt(9, 20), promptEvery: 5 });
+
+    const { payload, local } = await collect(todayAt(23));
+    expect(payload.commits.map((c) => c.repo).sort()).toEqual(["backend (personal)", "backend (work)"]);
+    expect(new Set(payload.claudeEvents.map((e) => e.repo))).toEqual(new Set(["backend (work)"]));
+    expect(fs.realpathSync(local.repoPaths.get("backend (work)")!)).toBe(fs.realpathSync(work));
+  });
+});

@@ -3,7 +3,7 @@ import path from "node:path";
 import type { JobResult, JobType, SavedRepo, Settings } from "../shared/types.js";
 import { paths } from "../shared/paths.js";
 import { collect } from "./collect.js";
-import { saveOpenWork } from "./git.js";
+import { pruneClockoutBranches, saveOpenWork } from "./git.js";
 import { installPause, removePause, resumeTime } from "./pause.js";
 import { installPickup } from "./pickup.js";
 import { claudeNotes, repoSection, todayByRepo, tomorrowMarkdown } from "./tomorrow.js";
@@ -36,8 +36,12 @@ export async function runJob(type: JobType, settings: Settings, now = new Date()
   const savedRepos: SavedRepo[] = [];
   for (const repo of [...local.recentRepos].sort()) {
     const top = local.repoPaths.get(repo);
-    if (top) savedRepos.push(saveOpenWork(top, date, now));
+    if (top) savedRepos.push(saveOpenWork(top, date, now, repo));
   }
+
+  const keepDays = Number(process.env.CLOCKOUT_KEEP_DAYS || 14);
+  let prunedBranches = 0;
+  for (const top of new Set(local.repoPaths.values())) prunedBranches += pruneClockoutBranches(top, keepDays, now).length;
 
   const until = resumeTime(now, settings.resumeHour);
   const days = todayByRepo(local, savedRepos, now);
@@ -70,6 +74,7 @@ export async function runJob(type: JobType, settings: Settings, now = new Date()
       usedClaudeSummary: !!summary,
       summarySource: summary?.source ?? null,
       pickupRepos: pickup.map((r) => r.repo),
+      prunedBranches,
     },
   };
 }

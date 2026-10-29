@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE COLLATE NOCASE,
   role TEXT NOT NULL CHECK (role IN ('developer', 'manager')),
+  time_zone TEXT,
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_manager ON users(role) WHERE role = 'manager';
@@ -144,7 +145,7 @@ CREATE TABLE IF NOT EXISTS task_activity (
 );
 `;
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export function openDb(file: string): DB {
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -157,6 +158,9 @@ export function openDb(file: string): DB {
     const cols = (db.prepare("PRAGMA table_info(claude_events)").all() as { name: string }[]).map((c) => c.name);
     if (!cols.includes("human")) db.exec("ALTER TABLE claude_events ADD COLUMN human INTEGER NOT NULL DEFAULT 0");
     if (!cols.includes("agent")) db.exec("ALTER TABLE claude_events ADD COLUMN agent INTEGER NOT NULL DEFAULT 1");
+    // v2 -> v3: each developer's time zone, reported by their agent.
+    const userCols = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    if (!userCols.includes("time_zone")) db.exec("ALTER TABLE users ADD COLUMN time_zone TEXT");
     db.exec("DROP TABLE IF EXISTS daily_metrics; DROP TABLE IF EXISTS task_activity;");
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }

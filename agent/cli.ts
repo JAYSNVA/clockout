@@ -21,6 +21,7 @@ function printClockout(c: ClockoutResult) {
   if (saved.length === 0) console.log("  No uncommitted work to save.");
   for (const s of saved) console.log(`  saved ${s.repo} -> ${s.branch} (${s.files} files)`);
   for (const s of c.savedRepos.filter((s) => s.status === "skipped")) console.log(`  skipped ${s.repo}: ${s.reason}`);
+  if (c.prunedBranches) console.log(`  removed ${c.prunedBranches} old clockout/* branches`);
   console.log(`  Tomorrow's list: ${c.tomorrowPath}`);
   if (c.pickupRepos.length) console.log(`  Tomorrow's first Claude Code session in ${c.pickupRepos.join(", ")} starts with these notes.`);
   console.log("");
@@ -67,6 +68,22 @@ if (type === "resume") {
   if (!(await viaServer())) console.log(was ? "Resumed. Claude Code tools are unblocked." : "Nothing to resume: agents were not paused.");
 } else if (!(await viaServer())) {
   console.log("Clockout server not running: clocking out directly on this machine.");
-  const result = await runJob("clockout", DEFAULT_SETTINGS);
-  printClockout(result.clockout!);
+  printClockout(await clockOutWithoutServer());
+}
+
+// Uses your Clockout settings (resume hour) and records the clock-out in the database, so the
+// dashboard shows it next time it starts. Without a database, runs with the defaults.
+async function clockOutWithoutServer(): Promise<ClockoutResult> {
+  if (!fs.existsSync(paths().db)) return (await runJob("clockout", DEFAULT_SETTINGS)).clockout!;
+  const { openDb } = await import("../server/db.js");
+  const { completeJob, createJob, getSettings, localDevice } = await import("../server/store.js");
+  const db = openDb(paths().db);
+  try {
+    const result = await runJob("clockout", getSettings(db));
+    const userId = localDevice(db)?.user_id;
+    if (userId) completeJob(db, createJob(db, userId, "clockout").id, result);
+    return result.clockout!;
+  } finally {
+    db.close();
+  }
 }

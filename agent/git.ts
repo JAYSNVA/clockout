@@ -64,6 +64,23 @@ export function repoName(top: string): string {
   return path.basename(top);
 }
 
+// Display names for repos: the folder name, or "name (parent)" when two clones share a folder name.
+export function repoNames(tops: string[]): Map<string, string> {
+  const byBase = new Map<string, string[]>();
+  for (const top of new Set(tops)) byBase.set(repoName(top), [...(byBase.get(repoName(top)) ?? []), top]);
+  const names = new Map<string, string>();
+  for (const [base, group] of byBase) {
+    if (group.length === 1) {
+      names.set(group[0], base);
+      continue;
+    }
+    const withParent = group.map((top) => `${base} (${path.basename(path.dirname(top))})`);
+    const unique = new Set(withParent).size === group.length;
+    group.forEach((top, i) => names.set(top, unique ? withParent[i] : `${base} (${top})`));
+  }
+  return names;
+}
+
 export function defaultBranch(top: string): string | null {
   const remoteHead = tryGit(top, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   if (remoteHead) return remoteHead.replace(/^origin\//, "");
@@ -80,8 +97,7 @@ export interface RepoCommit extends CommitEvent {
 }
 
 // All authors' commits since `since`, excluding Clockout's own WIP branches.
-export function readCommits(top: string, since: Date): RepoCommit[] {
-  const repo = repoName(top);
+export function readCommits(top: string, since: Date, repo = repoName(top)): RepoCommit[] {
   const out = tryGit(top, [
     "log",
     "--exclude=clockout/*",
@@ -132,8 +148,7 @@ export function readCommits(top: string, since: Date): RepoCommit[] {
 
 // Task "done" dates inferred from git: a commit on the default branch mentioning the key
 // (merge commits and squash merges), or a branch named after the key that is merged.
-export function readTaskDone(top: string, since: Date): TaskDone[] {
-  const repo = repoName(top);
+export function readTaskDone(top: string, since: Date, repo = repoName(top)): TaskDone[] {
   const def = defaultBranch(top);
   if (!def) return [];
   const done = new Map<string, string>();
@@ -186,8 +201,7 @@ function inProgressOperation(top: string): string | null {
 // Saves uncommitted work (tracked and untracked, respecting .gitignore) as a commit on
 // `clockout/<date>` using a temporary index. The working tree, the real index and the
 // current branch are never touched. Nothing is pushed.
-export function saveOpenWork(top: string, date: string, now = new Date()): SavedRepo {
-  const repo = repoName(top);
+export function saveOpenWork(top: string, date: string, now = new Date(), repo = repoName(top)): SavedRepo {
   const files = dirtyFiles(top);
   if (files.length === 0) return { repo, path: top, status: "skipped", reason: "no uncommitted changes" };
   const op = inProgressOperation(top);
@@ -224,4 +238,19 @@ export function saveOpenWork(top: string, date: string, now = new Date()): Saved
   } finally {
     fs.rmSync(tmpIndex, { force: true });
   }
+}
+
+// Deletes Clockout's own WIP branches (clockout/<date>, made by saveOpenWork) older than `keepDays`.
+// Branches with commits that Clockout didn't make, and the checked-out branch, are never touched.
+export function pruneClockoutBranches(top: string, keepDays: number, now = new Date()): string[] {
+  const out = tryGit(top, ["for-each-ref", `--format=%(refname:short)${SEP}%(committerdate:unix)${SEP}%(subject)`, "refs/heads/clockout/"]) ?? "";
+  const current = currentBranch(top);
+  const cutoff = now.getTime() / 1000 - keepDays * 86400;
+  const deleted: string[] = [];
+  for (const line of out.split("\n")) {
+    const [branch, when, subject] = line.split(SEP);
+    if (!branch || branch === current || !subject?.startsWith("WIP: clockout") || Number(when) >= cutoff) continue;
+    if (tryGit(top, ["update-ref", "-d", `refs/heads/${branch}`]) !== null) deleted.push(branch);
+  }
+  return deleted;
 }

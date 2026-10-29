@@ -1,7 +1,7 @@
 import type { pickupStatus } from "../agent/pickup.js";
 import { all, get, type DB } from "./db.js";
-import { DAY_ROLLOVER_HOUR, localDateKey, workdayKey } from "./metrics.js";
-import { devicesFor, emailsFor, getSettings, type Job } from "./store.js";
+import { DAY_ROLLOVER_HOUR, loadParts, localDateKey, wallClock, workdayKey } from "./metrics.js";
+import { devicesFor, emailsFor, getSettings, timeZoneOf, type Job } from "./store.js";
 
 const DAY = 86400000;
 
@@ -44,18 +44,17 @@ export interface TaskSummary {
   contributors: { userId: number; minutes: number; agentMinutes: number }[];
 }
 
-function dayKeys(days: number, end = new Date()): string[] {
+function dayKeys(days: number, end = new Date(), tz?: string): string[] {
   const keys: string[] = [];
-  for (let i = days - 1; i >= 0; i--) keys.push(localDateKey(end.getTime() - i * DAY));
+  for (let i = days - 1; i >= 0; i--) keys.push(localDateKey(end.getTime() - i * DAY, tz));
   return keys;
 }
 
-// Monday of the week containing `ms`, as a date key.
-export function weekKey(ms: number) {
-  const d = new Date(ms);
-  d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return localDateKey(d.getTime());
+// Monday of the week containing `ms` (in `tz`), as a date key.
+export function weekKey(ms: number, tz?: string) {
+  const d = new Date(`${localDateKey(ms, tz)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
 }
 
 function weekKeys(weeks: number): string[] {
@@ -150,13 +149,20 @@ function shapeDay(m: MetricRow | undefined, date: string) {
     agentMinutes: m?.agent_minutes ?? 0,
     agentSoloMinutes: m?.agent_solo_minutes ?? 0,
     loadScore: m?.load_score ?? 0,
+    loadParts: loadParts({
+      activeMinutes: m?.active_minutes ?? 0,
+      longestStretchMinutes: m?.longest_stretch_minutes ?? 0,
+      peakParallelSessions: m?.peak_parallel_sessions ?? 0,
+      lateNightMinutes: m?.late_night_minutes ?? 0,
+      contextSwitches: m?.context_switches ?? 0,
+    }),
     blocks: m ? (JSON.parse(m.blocks_json) as { start: number; end: number }[]) : [],
     agentBlocks: m ? (JSON.parse(m.agent_blocks_json) as { start: number; end: number }[]) : [],
   };
 }
 
 export function developerOverview(db: DB, userId: number) {
-  const keys = dayKeys(14);
+  const keys = dayKeys(14, new Date(), timeZoneOf(db, userId));
   const rows = metricsFor(db, [userId], keys[0]);
   const byDate = new Map(rows.map((r) => [r.date, r]));
   const days = keys.map((k) => shapeDay(byDate.get(k), k));
@@ -189,9 +195,9 @@ export function developerOverview(db: DB, userId: number) {
 }
 
 // Minutes after midnight, with times before the day rollover (05:00) counted as the previous evening.
-export function eveningMinutes(iso: string) {
-  const d = new Date(iso);
-  const m = d.getHours() * 60 + d.getMinutes();
+export function eveningMinutes(iso: string, tz?: string) {
+  const w = wallClock(Date.parse(iso), tz);
+  const m = w.hours * 60 + w.minutes;
   return m < DAY_ROLLOVER_HOUR * 60 ? m + 1440 : m;
 }
 
@@ -206,15 +212,17 @@ function usualFinish(db: DB, userId: number, date: string): number | null {
     date,
   );
   if (rows.length < 3) return null;
-  return Math.round(rows.reduce((a, r) => a + eveningMinutes(r.finish_at), 0) / rows.length);
+  const tz = timeZoneOf(db, userId);
+  return Math.round(rows.reduce((a, r) => a + eveningMinutes(r.finish_at, tz), 0) / rows.length);
 }
 
 // What clocking out gave back: earlier evenings than usual, agent calls stopped at night, and
 // late-night work compared with last week. If you resumed and kept working after clocking out,
 // your real finish counts, not the button press.
 export function timeGivenBack(db: DB, userId: number) {
-  const week = weekKey(Date.now());
-  const today = localDateKey(Date.now());
+  const tz = timeZoneOf(db, userId);
+  const week = weekKey(Date.now(), tz);
+  const today = localDateKey(Date.now(), tz);
   const clockouts = all<{ date: string; created_at: string }>(
     db,
     "SELECT date, created_at FROM clockouts WHERE user_id = ? AND created_at >= ? ORDER BY id",
@@ -223,12 +231,12 @@ export function timeGivenBack(db: DB, userId: number) {
   );
   // One entry per workday: the last clock-out of that day.
   const byDay = new Map<string, string>();
-  for (const c of clockouts) byDay.set(workdayKey(Date.parse(c.created_at)), c.created_at);
+  for (const c of clockouts) byDay.set(workdayKey(Date.parse(c.created_at), tz), c.created_at);
   const evenings = [...byDay].map(([day, at]) => {
     const finish = get<{ finish_at: string | null }>(db, "SELECT finish_at FROM daily_metrics WHERE user_id = ? AND date = ?", userId, day)?.finish_at;
     const finishedAt = finish && finish > at ? finish : at;
     const usual = usualFinish(db, userId, day);
-    const back = usual == null ? null : Math.max(0, usual - eveningMinutes(finishedAt));
+    const back = usual == null ? null : Math.max(0, usual - eveningMinutes(finishedAt, tz));
     return { day, clockedOutAt: at, finishedAt, workedAfter: finishedAt !== at, usualFinishMinutes: usual, backMinutes: back };
   });
   const thisWeek = evenings.filter((e) => weekKey(Date.parse(`${e.day}T12:00:00`)) === week);

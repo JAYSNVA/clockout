@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { ClockoutResult, CollectPayload, JobResult, JobType, Settings } from "../shared/types.js";
 import { DEFAULT_SETTINGS } from "../shared/types.js";
 import { all, get, run, tx, type DB } from "./db.js";
-import { computeDays, type ActivityEvent } from "./metrics.js";
+import { computeDays, isTimeZone, type ActivityEvent } from "./metrics.js";
 
 export interface User {
   id: number;
@@ -309,6 +309,10 @@ export function completeJob(db: DB, jobId: number, result: JobResult | null, err
   if (result.payload) recomputeAll(db);
 }
 
+export function timeZoneOf(db: DB, userId: number): string | undefined {
+  return get<{ time_zone: string | null }>(db, "SELECT time_zone FROM users WHERE id = ?", userId)?.time_zone ?? undefined;
+}
+
 export function latestClockout(db: DB, userId: number): ClockoutResult | null {
   const row = get<{ result_json: string }>(db, "SELECT result_json FROM clockouts WHERE user_id = ? ORDER BY id DESC LIMIT 1", userId);
   return row ? (JSON.parse(row.result_json) as ClockoutResult) : null;
@@ -319,6 +323,7 @@ export function latestClockout(db: DB, userId: number): ClockoutResult | null {
 export function ingestPayload(db: DB, userId: number, payload: CollectPayload, recompute = true) {
   const work = () => {
     claimEmails(db, userId, payload.localEmails);
+    if (isTimeZone(payload.timeZone)) run(db, "UPDATE users SET time_zone = ? WHERE id = ?", payload.timeZone, userId);
     const ev = db.prepare(
       "INSERT OR REPLACE INTO claude_events (id, user_id, ts, session_id, repo, task, human, agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     );
@@ -342,7 +347,7 @@ export function ingestPayload(db: DB, userId: number, payload: CollectPayload, r
 
 export function recomputeAll(db: DB) {
   const { lateHour } = getSettings(db);
-  const users = all<{ id: number }>(db, "SELECT id FROM users WHERE role = 'developer'");
+  const users = all<{ id: number; time_zone: string | null }>(db, "SELECT id, time_zone FROM users WHERE role = 'developer'");
   tx(db, () => {
     run(db, "DELETE FROM daily_metrics");
     run(db, "DELETE FROM task_activity");
@@ -356,7 +361,7 @@ export function recomputeAll(db: DB) {
       `INSERT INTO task_activity (task_key, repo, user_id, date, active_minutes, agent_minutes, sessions, commits, first_ts, last_ts)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    for (const { id } of users) {
+    for (const { id, time_zone } of users) {
       const events: ActivityEvent[] = [
         ...all<{ ts: string; session_id: string; repo: string; task: string | null; human: number; agent: number }>(
           db,
@@ -377,7 +382,7 @@ export function recomputeAll(db: DB) {
           id,
         ).map((c) => ({ ts: Date.parse(c.ts), kind: "git" as const, repo: c.repo, task: c.task, human: true, agent: false })),
       ];
-      const { days, tasks } = computeDays(events, lateHour);
+      const { days, tasks } = computeDays(events, lateHour, time_zone ?? undefined);
       for (const d of days) {
         dm.run(id, d.date, d.source, d.activeMinutes, d.spanMinutes, d.longestStretchMinutes, d.lastBreakAt, d.finishAt,
           d.peakParallelSessions, d.reposTouched, d.contextSwitches, d.lateNightMinutes, d.weekendMinutes, d.commits, d.agentMinutes,

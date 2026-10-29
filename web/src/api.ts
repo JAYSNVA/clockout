@@ -55,6 +55,7 @@ export interface Day {
   agentMinutes: number;
   agentSoloMinutes: number;
   loadScore: number;
+  loadParts: { handsOn: number; stretch: number; parallel: number; lateNight: number; switches: number };
   blocks: { start: number; end: number }[];
   agentBlocks: { start: number; end: number }[];
 }
@@ -88,6 +89,7 @@ export interface Clockout {
   usedClaudeSummary: boolean;
   summarySource?: "api" | "claude-code" | null;
   pickupRepos?: string[];
+  prunedBranches?: number;
   createdAt: string;
   resumedAt: string | null;
 }
